@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coral Bleaching Early Warning</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#f6f9fb; --card:#fff; --text:#16303a; --muted:#5b7280; --line:#d9e3e8; --accent:#0e7490; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0e1a20; --card:#15262e; --text:#e4eef2; --muted:#90a8b3; --line:#27414c; --accent:#38bdd8; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+  main { max-width:960px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { margin:0 0 4px; } h2 { margin:28px 0 8px; font-size:1.2rem; }
+  p.sub, .cap { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:10px 0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select, button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); }
+  input[type=text] { flex:1; min-width:200px; }
+  button { background:var(--accent); color:#fff; border:none; cursor:pointer; } button:disabled { opacity:.5; }
+  .badge { display:inline-block; padding:6px 14px; border-radius:20px; color:#fff; font-weight:700; font-size:1.2rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+  .m { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .m b { display:block; font-size:1.35rem; } .m span { color:var(--muted); font-size:.82rem; }
+  .ch { position:relative; height:240px; } .two { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  .err { color:#c2410c; } img { max-width:100%; border-radius:8px; } [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🪸 Coral Bleaching Early Warning</h1>
+  <p class="sub">Search for a reef. Risk comes from NOAA Coral Reef Watch satellite data and NOAA's official bleaching alert levels. NOAA's global CO₂ record shows the long-term pressure behind the heat.</p>
+
+  <div class="card">
+    <div class="row">
+      <input type="text" id="q" placeholder="Search a reef or place, e.g. Bonaire, Key Largo, Cairns">
+      <button id="searchBtn">Search</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="matches"></select>
+      <button id="goBtn">Check this reef</button>
+    </div>
+    <p class="cap" id="status"></p>
+  </div>
+
+  <div id="results" hidden>
+    <h2 id="title"></h2>
+    <p class="cap" id="pixelNote"></p>
+
+    <h2>1. Current bleaching alert level (NOAA, 7-day maximum)</h2>
+    <div class="card"><span class="badge" id="badge"></span><p id="meaning"></p></div>
+
+    <h2>2. Where it is heading</h2>
+    <div class="grid" id="metrics"></div>
+    <p id="whatif"></p>
+    <div class="card"><div class="ch"><canvas id="dhwChart"></canvas></div>
+      <p class="cap">DHW of 4 means significant bleaching is likely. DHW of 8 means widespread bleaching with some coral death. The second line is a simple what-if, not a forecast.</p></div>
+    <div class="two">
+      <div class="card"><b>Alert level, last 90 days (0 = No Stress, 3 = Alert 1, 7 = Alert 5)</b><div class="ch"><canvas id="lvlChart"></canvas></div></div>
+      <div class="card"><b>Sea surface temperature, last 90 days (°C)</b><div class="ch"><canvas id="sstChart"></canvas></div></div>
+    </div>
+    <p id="alertDays"></p>
+    <details class="card"><summary>What do the NOAA alert levels mean?</summary><div id="legend"></div></details>
+
+    <h2>3. NOAA's 4-month bleaching outlook</h2>
+    <div class="card">
+      <select id="region"></select>
+      <p><img id="outlookImg" alt="NOAA Coral Reef Watch 4-month bleaching outlook"></p>
+      <p class="cap">Model-based forecast, so read it next to the satellite data above. <a href="https://coralreefwatch.noaa.gov/satellite/bleachingoutlook_cfs/outlook_cfs.php" target="_blank" rel="noopener">About this outlook</a></p>
+    </div>
+
+    <h2>4. This reef's heat stress history vs global carbon dioxide</h2>
+    <p id="histStatus" class="cap"></p>
+    <div id="histBox" hidden>
+      <div class="grid" id="histMetrics"></div>
+      <div class="two" style="margin-top:12px">
+        <div class="card"><b>Peak heat stress (DHW) each year at this reef</b><div class="ch"><canvas id="annChart"></canvas></div></div>
+        <div class="card"><b>Global CO₂, annual mean (ppm)</b><div class="ch"><canvas id="co2Chart"></canvas></div></div>
+      </div>
+      <div class="card"><table id="decades"></table>
+        <p class="cap">Heat stress and CO₂ both rise over time, so a high r shows they moved together. It does not prove CO₂ caused this one reef's heat. Ocean temperature, El Niño years, and local conditions drive each year's peak. The last period includes the current year so far.</p></div>
+    </div>
+    <p class="cap">Data: NOAA Coral Reef Watch (daily 5 km v3.1 heat stress products) and NOAA Global Monitoring Laboratory (global CO₂). Alert levels follow NOAA's 2023 revised system. For official alerts, see NOAA Coral Reef Watch.</p>
+  </div>
+</main>
+
+<script>
+const ERDDAP = "https://coastwatch.pfeg.noaa.gov/erddap/griddap/NOAA_DHW.csv";
+const CO2 = "https://gml.noaa.gov/webdata/ccgg/trends/co2/";
+const OUTLOOK = "https://coralreefwatch.noaa.gov/satellite/bleachingoutlook_cfs/current_image/cur_cfsv2_outlook-4mon_v5_60pct_";
+const OUTLOOKS = { "Global":"large.gif", "Caribbean":"crb_2790x1740.gif", "Florida":"fl_930x580.gif", "Hawaii":"hi_930x580.gif",
+  "Great Barrier Reef":"gbr_930x580.gif", "Coral Triangle":"ctr_2790x1740.gif", "Pacific":"pacific_930x580.gif", "Indian Ocean":"indian_930x580.gif" };
+const PRESETS = { "Florida Keys, USA":[24.55,-81.80], "Great Barrier Reef, Australia":[-18.29,147.70], "Belize Barrier Reef":[17.30,-87.80],
+  "Kaneohe Bay, Hawaii":[21.45,-157.80], "Bonaire, Caribbean":[12.15,-68.28] };
+const LEVELS = [
+  ["No Stress","#2e9e5b","No bleaching expected."],
+  ["Bleaching Watch","#2f7fd1","Water is above the normal summer maximum, but not enough to cause bleaching yet."],
+  ["Bleaching Warning","#e8912d","Risk of possible bleaching."],
+  ["Bleaching Alert Level 1","#d9453d","Risk of reef-wide bleaching."],
+  ["Bleaching Alert Level 2","#b32d2e","Risk of reef-wide bleaching, with death of heat-sensitive corals."],
+  ["Bleaching Alert Level 3","#8e3fb3","Risk of multi-species coral death."],
+  ["Bleaching Alert Level 4","#6a2a8c","Risk of severe, multi-species coral death (more than 50% of corals)."],
+  ["Bleaching Alert Level 5","#3d1a5c","Risk of near complete coral death (more than 80% of corals)."] ];
+
+const $ = id => document.getElementById(id);
+const charts = {};
+const fmt = (x, d = 1) => Number(x).toFixed(d);
+
+// NOAA Coral Reef Watch rules (revised Dec 2023)
+function alertLevel(hs, dhw) {
+  if (isNaN(hs) || isNaN(dhw)) return NaN;
+  if (hs <= 0) return 0;
+  if (hs < 1) return 1;
+  return 2 + [4, 8, 12, 16, 20].filter(c => dhw >= c).length;
+}
+// DHW = sum of HotSpot values >= 1 over the last 84 days, divided by 7
+function projectDHW(hotspots, days = 28) {
+  const hs = hotspots.slice(-84), last7 = hs.slice(-7);
+  const persist = last7.reduce((a, b) => a + b, 0) / last7.length, out = [];
+  for (let i = 0; i < days; i++) {
+    hs.push(persist);
+    out.push(hs.slice(-84).filter(v => v >= 1).reduce((a, b) => a + b, 0) / 7);
+  }
+  return { persist, out };
+}
+function slope(xs, ys) {
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let num = 0, den = 0;
+  xs.forEach((x, i) => { num += (x - mx) * (ys[i] - my); den += (x - mx) ** 2; });
+  return num / den;
+}
+function pearson(a, b) {
+  const n = a.length, ma = a.reduce((x, y) => x + y) / n, mb = b.reduce((x, y) => x + y) / n;
+  let s = 0, va = 0, vb = 0;
+  for (let i = 0; i < n; i++) { s += (a[i] - ma) * (b[i] - mb); va += (a[i] - ma) ** 2; vb += (b[i] - mb) ** 2; }
+  return s / Math.sqrt(va * vb);
+}
+
+function erddapUrl(vars, time, lat, lon) {
+  return ERDDAP + "?" + vars.map(v => `v[{time}][(lat):1:({lat})][(lon):1:({lon})]`).join(",");
+}
+async function grid(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("NOAA returned " + r.status);
+  const lines = (await r.text()).trim().split("\n"), head = lines[0].split(",");
+  return lines.slice(2).map(l => {   // line 2 holds units
+    const c = l.split(","), o = {};
+    head.forEach((h, i) => o[h] = h === "time" ? c[i] : parseFloat(c[i]));
+    return o;
+  });
+}
+async function noaaCsv(file) {
+  const r = await fetch(CO2 + file);
+  if (!r.ok) throw new Error("NOAA GML returned " + r.status);
+  return (await r.text()).split("\n").filter(l => l.trim() && !l.startsWith("#"))
+    .map(l => l.split(",").map(parseFloat)).filter(a => !isNaN(a[0]) && !isNaN(a[1]));
+}
+
+// Place searches often land on shore, so check the point, then rings of nearby 5 km pixels
+async function findPixel(lat, lon) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  for (const r of [0, .05, .1, .15, .2, .25]) {
+    const pts = (r === 0 ? [[0, 0]] : dirs.map(([a, b]) => [a * r, b * r]))
+      .map(([a, b]) => [+(lat + a).toFixed(3), +(lon + b).toFixed(3)])
+      .filter(([a, b]) => Math.abs(a) < 89 && Math.abs(b) < 179.9);
+    const res = await Promise.all(pts.map(([a, b]) =>
+      grid(erddapUrl(["CRW_DHW"], "last", a, b)).then(rows => ({ a, b, ok: rows.some(x => !isNaN(x.CRW_DHW)) })).catch(err => ({ err }))));
+    if (r === 0 && res[0].err instanceof TypeError) throw res[0].err;
+    const hit = res.find(x => x.ok);
+    if (hit) return [hit.a, hit.b];
+  }
+  return null;
+}
+
+function draw(id, type, labels, sets, extra = {}) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), { type, data: { labels, datasets: sets }, options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    plugins: { legend: { display: sets.length > 1 } },
+    elements: { point: { radius: 0 } },
+    scales: { x: { ticks: { maxTicksLimit: 8 } } }, ...extra } });
+}
+const line = (label, data, color) => ({ label, data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: .2 });
+const metric = (label, value, note = "") => `<div class="m"><span>label</span><b>{value}</b><span>${note}</span></div>`;
+
+async function analyze(lat, lon, label) {
+  $("results").hidden = false; $("histBox").hidden = true;
+  $("title").textContent = label; $("pixelNote").textContent = "";
+  $("histStatus").textContent = ""; $("status").className = "cap";
+  $("goBtn").disabled = true; $("status").textContent = "Finding the nearest satellite ocean pixel...";
+  try {
+    const pixel = await findPixel(lat, lon);
+    if (!pixel) { $("status").textContent = "No NOAA ocean data within about 25 km of this point. Try a spot over the water."; $("results").hidden = true; return; }
+    $("status").textContent = "Loading NOAA Coral Reef Watch data...";
+    let rows = await grid(erddapUrl(["CRW_SST", "CRW_SSTANOMALY", "CRW_HOTSPOT", "CRW_DHW"], "last-119:1:last", pixel[0], pixel[1]));
+    rows = rows.filter(r => !isNaN(r.CRW_DHW) && !isNaN(r.CRW_HOTSPOT));
+    if (!rows.length) { $("status").textContent = "NOAA returned no recent data for this pixel."; return; }
+    const km = Math.hypot((pixel[0] - lat) * 111, (pixel[1] - lon) * 111 * Math.cos(lat * Math.PI / 180));
+    const dates = rows.map(r => r.time.slice(0, 10)), last = rows[rows.length - 1];
+    $("pixelNote").textContent = `Satellite pixel used: ${pixel[0]}, ${pixel[1]} (5 km grid, about ${fmt(km, 0)} km from the searched point). Latest data: ${dates[dates.length - 1]}.`;
+
+    // 1. Official level: 7-day maximum of daily levels
+    const daily = rows.map(r => alertLevel(r.CRW_HOTSPOT, r.CRW_DHW));
+    const lvl7 = daily.map((_, i) => Math.max(...daily.slice(Math.max(0, i - 6), i + 1).filter(v => !isNaN(v))));
+    const now = lvl7[lvl7.length - 1], [name, color, meaning] = LEVELS[now];
+    $("badge").textContent = name; $("badge").style.background = color; $("meaning").textContent = meaning;
+
+    // 2. Direction
+    const sst7 = rows.slice(-7).map(r => r.CRW_SST);
+    const sstChange = sst7.length >= 4 ? slope(sst7.map((_, i) => i), sst7) * 7 : 0;
+    const sstDir = sstChange > .2 ? "warming" : sstChange < -.2 ? "cooling" : "steady";
+    const dhwChange = last.CRW_DHW - rows[Math.max(0, rows.length - 15)].CRW_DHW;
+    $("metrics").innerHTML =
+      metric("Sea surface temp", fmt(last.CRW_SST) + " °C") + metric("Above normal by", fmt(last.CRW_SSTANOMALY) + " °C") +
+      metric("Heat stress (DHW)", fmt(last.CRW_DHW), (dhwChange >= 0 ? "+" : "") + fmt(dhwChange) + " in 14 days") +
+      metric("7-day SST trend", (sstChange >= 0 ? "+" : "") + fmt(sstChange, 2) + " °C", sstDir);
+
+    const { persist, out } = projectDHW(rows.map(r => r.CRW_HOTSPOT));
+    const worst14 = Math.max(...out.slice(0, 14).map(d => alertLevel(persist, d)));
+    $("whatif").textContent = (persist < 1 && now <= 2)
+      ? "Recent HotSpot values are below the 1 °C bleaching threshold, so heat stress is not building right now."
+      : worst14 > now
+        ? `If the last week's heat simply continues, this reef could reach ${LEVELS[worst14][0]} within 14 days (DHW near ${fmt(out[13])}).`
+        : `If the last week's heat simply continues, the level should hold near ${LEVELS[worst14][0]} for the next 14 days.`;
+
+    const obs = rows.slice(-60), futureDates = out.map((_, i) => { const d = new Date(dates[dates.length - 1]); d.setDate(d.getDate() + i + 1); return d.toISOString().slice(0, 10); });
+    const obsLabels = obs.map(r => r.time.slice(0, 10));
+    draw("dhwChart", "line", [...obsLabels, ...futureDates], [
+      line("Observed DHW", [...obs.map(r => r.CRW_DHW), ...out.map(() => null)], "#0e7490"),
+      { ...line("If last week's heat continues", [...obs.map((_, i) => i === obs.length - 1 ? last.CRW_DHW : null), ...out], "#e8912d"), borderDash: [6, 4] }]);
+    draw("lvlChart", "line", dates.slice(-90), [{ ...line("Level", lvl7.slice(-90), "#d9453d"), stepped: true }], { scales: { y: { min: 0, max: 7, ticks: { stepSize: 1 } }, x: { ticks: { maxTicksLimit: 6 } } } });
+    draw("sstChart", "line", dates.slice(-90), [line("SST", rows.slice(-90).map(r => r.CRW_SST), "#0e7490")]);
+    ("alertDays").innerHTML=`DaysatBleachingAlertLevel1orhigherinthelast90days:<b>{daily.slice(-90).filter(v => v >= 3).length}</b>.`;
+    $("status").textContent = "";
+    loadHistory(pixel);
+  } catch (e) {
+    $("status").className = "cap err";
+    $("status").textContent = e instanceof TypeError
+      ? "Your browser could not reach NOAA's data server (network or browser security block). Check your internet connection and try again."
+      : "Could not get NOAA data: " + e.message;
+  } finally { $("goBtn").disabled = false; }
+}
+
+async function loadHistory(pixel) {
+  $("histStatus").textContent = "Loading 40 years of heat stress history and NOAA global CO₂...";
+  try {
+    const [hist, annual, monthly, growth] = await Promise.all([
+      grid(erddapUrl(["CRW_DHW"], "0:1:last", pixel[0], pixel[1])), noaaCsv("co2_annmean_gl.csv"), noaaCsv("co2_mm_gl.csv"), noaaCsv("co2_gr_gl.csv")]);
+    const peak = {};
+    hist.forEach(r => { if (!isNaN(r.CRW_DHW)) { const y = +r.time.slice(0, 4); peak[y] = Math.max(peak[y] ?? 0, r.CRW_DHW); } });
+    const years = Object.keys(peak).map(Number).sort((a, b) => a - b), peaks = years.map(y => peak[y]);
+    const co2 = Object.fromEntries(annual.map(a => [a[0], a[1]]));
+    const both = years.filter(y => co2[y] !== undefined);
+    const r = both.length > 5 ? pearson(both.map(y => peak[y]), both.map(y => co2[y])) : NaN;
+    const perDecade = slope(years, peaks) * 10;
+    const mm = monthly.filter(a => !isNaN(a[3])), cur = mm[mm.length - 1];
+    const prev = mm.find(a => a[0] === cur[0] - 1 && a[1] === cur[1]), gr = growth[growth.length - 1];
+    const bestYear = years[peaks.indexOf(Math.max(...peaks))];
+
+    $("histMetrics").innerHTML =
+      metric(`Global CO₂, cur[0]-{String(cur[1]).padStart(2, "0")}`, fmt(cur[3]) + " ppm", prev ? (cur[3] - prev[3] >= 0 ? "+" : "") + fmt(cur[3] - prev[3]) + " ppm vs a year earlier" : "") +
+      metric("Increase in the last full year", fmt(gr[1]) + " ppm", "year " + gr[0]) +
+      metric("Above pre-industrial (about 280 ppm)", fmt((cur[3] / 280 - 1) * 100, 0) + "%") +
+      metric("Worst year on record (peak DHW)", fmt(Math.max(...peaks)), "in " + bestYear) +
+      metric("Change in yearly peak DHW", (perDecade >= 0 ? "+" : "") + fmt(perDecade) + " per decade") +
+      metric("Link to global CO₂ (r)", isNaN(r) ? "n/a" : fmt(r, 2));
+
+    draw("annChart", "bar", years, [{ label: "Peak DHW", data: peaks, backgroundColor: "#d9453d" }]);
+    draw("co2Chart", "line", annual.map(a => a[0]), [line("CO₂ (ppm)", annual.map(a => a[1]), "#0e7490")]);
+    const rowsHtml = [[1985, 1994], [1995, 2004], [2005, 2014], [2015, 2026]].map(([a, b]) => {
+      const sel = years.filter(y => y >= a && y <= b).map(y => peak[y]);
+      return `<tr><td>${a} to b</td><td>{sel.filter(v => v >= 4).length}</td><td>sel.filter(v=>v>=8).length</td><td>{sel.length ? fmt(Math.max(...sel)) : "n/a"}</td></tr>`;
+    }).join("");
+    $("decades").innerHTML = "<tr><th>Years</th><th>Years with DHW of 4+ (Alert Level 1)</th><th>Years with DHW of 8+ (Alert Level 2)</th><th>Peak DHW</th></tr>" + rowsHtml;
+    $("histBox").hidden = false; $("histStatus").textContent = "";
+  } catch (e) {
+    $("histStatus").className = "cap err";
+    $("histStatus").textContent = "Could not load the history or NOAA CO₂ data: " + e.message +
+      (e instanceof TypeError ? " (The browser may be blocking this NOAA server. The satellite sections above still work.)" : "");
+  }
+}
+
+// ---- Search and controls ----
+function fillMatches(items) {
+  ("matches").innerHTML=items.map(([label,la,lo])=>`<optionvalue="{la},lo">{label}</option>`).join("");
+}
+fillMatches(Object.entries(PRESETS).map(([k, v]) => [k, v[0], v[1]]));
+("region").innerHTML=Object.keys(OUTLOOKS).map(k=>`<option>{k}</option>`).join("");
+const setOutlook = () => { ("outlookImg").src=OUTLOOK+OUTLOOKS[("region").value]; };
+$("region").onchange = setOutlook; setOutlook();
+
+async function search() {
+  const q = $("q").value.trim(); if (!q) return;
+  $("status").className = "cap"; $("status").textContent = "Searching...";
+  try {
+    const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=5&name=" + encodeURIComponent(q));
+    const places = (await r.json()).results || [];
+    if (!places.length) { $("status").textContent = "No places found. Try another name or pick a preset."; return; }
+    fillMatches(places.map(p => [`${p.name}, ${p.admin1 || ""} ${p.country || ""}`.replace("  ", " "), p.latitude, p.longitude]));
+    $("status").textContent = "Pick the best match, then press Check this reef.";
+  } catch (e) { $("status").className = "cap err"; $("status").textContent = "Place search failed: " + e.message; }
+}
+$("searchBtn").onclick = search;
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+$("goBtn").onclick = () => {
+  const [la, lo] = $("matches").value.split(",").map(Number);
+  analyze(la, lo, $("matches").selectedOptions[0].textContent);
+};
+</script>
+</body>
+</html>
